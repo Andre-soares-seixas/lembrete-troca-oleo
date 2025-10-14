@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>Lembrete Troca De Óleo</title>
+    <title>Lembrete Troca de Óleo</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/imask/6.4.2/imask.min.js"></script>
     <style>
@@ -74,22 +74,6 @@
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
 
-        a {
-            color: var(--primary-color);
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        a:hover {
-            text-decoration: underline;
-        }
-
-        label {
-            display: block;
-            margin-top: 15px;
-            font-weight: bold;
-        }
-
         .actions {
             display: flex;
             gap: 10px;
@@ -117,6 +101,15 @@
         .btn-edit:hover {
             background-color: #0096c7;
         }
+
+        #logout {
+            background-color: #9b2226;
+            margin-top: 15px;
+        }
+
+        #logout:hover {
+            background-color: #ae2012;
+        }
     </style>
 </head>
 
@@ -124,6 +117,7 @@
     <div class="container">
         <h1>Sistema de Lembrete - Troca de Óleo Ipê Lube</h1>
 
+        <!-- LOGIN -->
         <div id="login-div">
             <input type="text" id="nome_usuario" placeholder="Nome completo" />
             <input type="email" id="email" placeholder="Email" autocomplete="email" />
@@ -132,6 +126,7 @@
             <button onclick="signup()">Cadastrar</button>
         </div>
 
+        <!-- APP -->
         <div id="app" class="hidden">
             <h2>Cadastrar Cliente/Veículo</h2>
             <input id="nome" placeholder="Nome do Cliente" />
@@ -139,12 +134,16 @@
             <input id="marca" placeholder="Marca do veículo" />
             <input id="modelo" placeholder="Modelo do veículo" />
             <input id="oleo" placeholder="Tipo de óleo" />
+            <input id="placa" placeholder="Placa do veículo (ABC1234)" maxlength="7" />
             <input id="km_atual" placeholder="KM atual" />
+            <input id="km_proxima" placeholder="Próximo KM" />
             <input type="date" id="data_troca" />
             <input type="date" id="data_proxima" />
-            <input id="km_proxima" placeholder="Próximo KM" />
             <button onclick="salvarCadastro()" id="btnSalvar">Salvar</button>
+
+            <button id="logout" onclick="logout()">Sair da Conta</button>
             <hr />
+
             <h2>Próximos Lembretes</h2>
             <label><input type="checkbox" id="filtroHoje" onchange="carregarLembretes()" /> Mostrar somente lembretes de hoje</label>
             <div id="lembretes"></div>
@@ -158,250 +157,194 @@
             'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrcnVsZHdndWpycnpzcHN3aHR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMyMTgwMjEsImV4cCI6MjA2ODc5NDAyMX0.sMms3mll69fCeN75p0MdPySnVHqij_ow90__HJExHyc'
         );
 
-        const telefoneInput = document.getElementById('telefone');
-        IMask(telefoneInput, { mask: '00000000000' });
+        IMask(document.getElementById('telefone'), { mask: '00000000000' });
 
-        let editandoId = null; // controla o modo de edição
+        let editandoId = null;
 
-        function validarCamposObrigatorios(...campos) {
-            for (const campo of campos) {
-                if (!campo.value.trim()) {
-                    alert(`Por favor, preencha o campo ${campo.placeholder || campo.id}`);
-                    campo.focus();
-                    return false;
-                }
+        // --- CHECA LOGIN AO INICIAR ---
+        document.addEventListener("DOMContentLoaded", async () => {
+            const { data: session } = await supabaseClient.auth.getSession();
+            if (session?.session) {
+                mostrarApp();
+                carregarLembretes();
+            } else {
+                mostrarLogin();
             }
-            return true;
+
+            // Monitora mudanças de sessão (login/logout)
+            supabaseClient.auth.onAuthStateChange((_event, session) => {
+                if (session) {
+                    mostrarApp();
+                    carregarLembretes();
+                } else {
+                    mostrarLogin();
+                }
+            });
+        });
+
+        function mostrarApp() {
+            document.getElementById("login-div").classList.add("hidden");
+            document.getElementById("app").classList.remove("hidden");
         }
 
-        function formatarDataISO(d) {
-            return d.toISOString().split('T')[0];
+        function mostrarLogin() {
+            document.getElementById("login-div").classList.remove("hidden");
+            document.getElementById("app").classList.add("hidden");
         }
 
-        function formatarDataBR(data) {
-            return new Date(data).toLocaleDateString('pt-BR');
-        }
-
+        // --- CADASTRO ---
         async function signup() {
             const nome = document.getElementById('nome_usuario').value.trim();
             const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value.trim();
 
-            if (!nome || !email || !password) {
-                alert("Preencha todos os campos.");
-                return;
-            }
+            if (!nome || !email || !password) return alert("Preencha todos os campos.");
 
-            const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({ email, password });
-            if (signUpError) {
-                alert('Erro ao cadastrar: ' + signUpError.message);
-                return;
-            }
+            const { data, error } = await supabaseClient.auth.signUp({ email, password });
+            if (error) return alert('Erro ao cadastrar: ' + error.message);
 
-            const { data: loginData, error: loginError } = await supabaseClient.auth.signInWithPassword({ email, password });
-            if (loginError || !loginData?.user) {
-                alert('Erro ao logar após o cadastro: ' + loginError?.message);
-                return;
-            }
-
-            const user = loginData.user;
-            const { data: usuarioExiste } = await supabaseClient
-                .from('usuarios')
-                .select()
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-            if (!usuarioExiste) {
-                await supabaseClient.from('usuarios').insert([{ nome, user_id: user.id }]);
-            }
-
-            document.getElementById('login-div').classList.add('hidden');
-            document.getElementById('app').classList.remove('hidden');
-            carregarLembretes();
+            await supabaseClient.from('usuarios').insert([{ nome, user_id: data.user.id }]);
+            alert("Cadastro realizado com sucesso! Agora você pode entrar.");
         }
 
+        // --- LOGIN ---
         async function login() {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
 
-            const { data: loginData, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-            if (error || !loginData?.user) {
-                console.error('Erro de login:', error?.message);
-                return alert('Email ou senha incorretos.');
-            }
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) return alert('Email ou senha incorretos.');
 
-            const user = loginData.user;
-            const { data: usuarioExiste } = await supabaseClient
-                .from('usuarios')
-                .select()
-                .eq('user_id', user.id)
-                .maybeSingle();
-
-            if (!usuarioExiste) {
-                const nome = document.getElementById('nome_usuario').value || 'Usuário sem nome';
-                await supabaseClient.from('usuarios').insert([{ nome, user_id: user.id }]);
-            }
-
-            document.getElementById('login-div').classList.add('hidden');
-            document.getElementById('app').classList.remove('hidden');
+            mostrarApp();
             carregarLembretes();
         }
 
+        // --- LOGOUT ---
+        async function logout() {
+            await supabaseClient.auth.signOut();
+            mostrarLogin();
+        }
+
+        // --- SALVAR COM VERIFICAÇÃO DE DUPLICADOS ---
         async function salvarCadastro() {
-            const nomeInput = document.getElementById('nome');
-            const telefoneInput = document.getElementById('telefone');
-            const marcaInput = document.getElementById('marca');
-            const modeloInput = document.getElementById('modelo');
-            const oleoInput = document.getElementById('oleo');
-            const kmAtualInput = document.getElementById('km_atual');
-            const kmProxInput = document.getElementById('km_proxima');
-            const dataTrocaInput = document.getElementById('data_troca');
-            const dataProximaInput = document.getElementById('data_proxima');
+            const nome = document.getElementById('nome').value.trim();
+            const telefone = document.getElementById('telefone').value.trim();
+            const marca = document.getElementById('marca').value.trim();
+            const modelo = document.getElementById('modelo').value.trim();
+            const oleo = document.getElementById('oleo').value.trim();
+            const placa = document.getElementById('placa').value.trim().toUpperCase();
+            const km_atual = document.getElementById('km_atual').value.trim();
+            const km_proxima = document.getElementById('km_proxima').value.trim();
+            const data_troca = document.getElementById('data_troca').value;
+            const data_proxima = document.getElementById('data_proxima').value;
 
-            if (!validarCamposObrigatorios(nomeInput, telefoneInput, marcaInput, modeloInput, oleoInput, kmAtualInput, kmProxInput, dataTrocaInput, dataProximaInput)) return;
-
-            if (telefoneInput.value.length !== 11) {
-                return alert('O telefone deve ter 11 dígitos (DDD + número).');
-            }
+            if (!nome || !telefone || !marca || !modelo || !oleo || !placa || !km_atual || !km_proxima || !data_troca || !data_proxima)
+                return alert("Preencha todos os campos.");
 
             const { data: userData } = await supabaseClient.auth.getUser();
             const user = userData?.user;
             if (!user) return alert('Usuário não autenticado.');
 
-            // Se estiver editando, atualiza o veículo
-            if (editandoId) {
-                const { error } = await supabaseClient
-                    .from('veiculos')
-                    .update({
-                        marca: marcaInput.value,
-                        modelo: modeloInput.value,
-                        tipo_oleo: oleoInput.value,
-                        km_atual: kmAtualInput.value,
-                        km_proxima_troca: kmProxInput.value,
-                        data_ultima_troca: dataTrocaInput.value,
-                        data_proxima_troca: dataProximaInput.value
-                    })
-                    .eq('id', editandoId);
+            // Verifica duplicado
+            const { data: duplicado } = await supabaseClient
+                .from("veiculos")
+                .select("id")
+                .eq("placa", placa)
+                .single();
 
-                if (error) return alert('Erro ao atualizar veículo.');
+            if (duplicado) return alert(`⚠️ Já existe um veículo com a placa ${placa}.`);
 
-                alert('Lembrete atualizado com sucesso!');
-                editandoId = null;
-                document.getElementById('btnSalvar').innerText = 'Salvar';
-                limparCampos();
-                carregarLembretes();
-                return;
-            }
-
-            // Caso contrário, cria novo cliente/veículo
+            // Cliente existente?
             const { data: clienteExistente } = await supabaseClient
                 .from('clientes')
                 .select('id')
-                .eq('telefone', telefoneInput.value)
+                .eq('telefone', telefone)
                 .maybeSingle();
 
             let clienteId;
             if (clienteExistente) {
                 clienteId = clienteExistente.id;
             } else {
-                const { data: novoCliente, error: clienteError } = await supabaseClient
+                const { data: novoCliente } = await supabaseClient
                     .from('clientes')
-                    .insert([{ nome: nomeInput.value, telefone: telefoneInput.value, user_id: user.id }])
+                    .insert([{ nome, telefone, user_id: user.id }])
                     .select()
                     .single();
-                if (clienteError) return alert('Erro ao salvar cliente.');
                 clienteId = novoCliente.id;
             }
 
-            const { error: veiculoError } = await supabaseClient.from('veiculos').insert([{
+            await supabaseClient.from('veiculos').insert([{
                 cliente_id: clienteId,
-                marca: marcaInput.value,
-                modelo: modeloInput.value,
-                tipo_oleo: oleoInput.value,
-                km_atual: kmAtualInput.value,
-                km_proxima_troca: kmProxInput.value,
-                data_ultima_troca: dataTrocaInput.value,
-                data_proxima_troca: dataProximaInput.value
+                marca,
+                modelo,
+                tipo_oleo: oleo,
+                placa,
+                km_atual,
+                km_proxima_troca: km_proxima,
+                data_ultima_troca: data_troca,
+                data_proxima_troca: data_proxima
             }]);
 
-            if (veiculoError) return alert('Erro ao salvar veículo.');
-
-            alert('Cadastro salvo!');
+            alert('✅ Cadastro salvo com sucesso!');
             limparCampos();
             carregarLembretes();
         }
 
-        function limparCampos() {
-            document.getElementById('nome').value = '';
-            document.getElementById('telefone').value = '';
-            document.getElementById('marca').value = '';
-            document.getElementById('modelo').value = '';
-            document.getElementById('oleo').value = '';
-            document.getElementById('km_atual').value = '';
-            document.getElementById('km_proxima').value = '';
-            document.getElementById('data_troca').value = '';
-            document.getElementById('data_proxima').value = '';
-        }
-
+        // --- LEMBRETES ---
         async function carregarLembretes() {
-            const filtroHoje = document.getElementById('filtroHoje')?.checked;
-            const hoje = formatarDataISO(new Date());
+            const filtroHoje = document.getElementById('filtroHoje').checked;
+            const hoje = new Date().toISOString().split('T')[0];
 
             let query = supabaseClient
                 .from('veiculos')
                 .select('*, clientes (id, nome, telefone)')
                 .order('data_proxima_troca', { ascending: true });
 
-            if (filtroHoje) {
-                query = query.eq('data_proxima_troca', hoje);
-            }
+            if (filtroHoje) query = query.eq('data_proxima_troca', hoje);
 
             const { data } = await query;
             const div = document.getElementById('lembretes');
             div.innerHTML = '';
 
-            if (!data || data.length === 0) {
+            if (!data?.length) {
                 div.innerHTML = '<p>Nenhum lembrete encontrado.</p>';
                 return;
             }
 
             data.forEach(item => {
-                const msg = `Olá ${item.clientes.nome}, tudo bem? 😊\n\n` +
-                    `Estou passando para lembrar da sua próxima troca de óleo:\n\n` +
-                    `📅 Data: ${formatarDataBR(item.data_proxima_troca)}\n` +
-                    `📍 KM: ${item.km_proxima_troca}\n\n` +
-                    `Agende conosco para manter seu carro sempre em dia! 🚗✨`;
-
+                const msg = `Olá ${item.clientes.nome}! 😊\n📅 Próxima troca: ${new Date(item.data_proxima_troca).toLocaleDateString('pt-BR')}\n📍 KM: ${item.km_proxima_troca}\nAgende conosco! 🚗✨`;
                 const link = `https://wa.me/55${item.clientes.telefone}?text=${encodeURIComponent(msg)}`;
 
                 div.innerHTML += `
                     <div class="item">
-                        <strong>${item.clientes.nome}</strong> (${item.marca} ${item.modelo})<br />
-                        Troca: ${formatarDataBR(item.data_proxima_troca)} ou ${item.km_proxima_troca} km<br />
-                        <a href="${link}" target="_blank">Enviar Lembrete via WhatsApp</a>
+                        <strong>${item.clientes.nome}</strong> (${item.marca} ${item.modelo})<br/>
+                        Placa: ${item.placa}<br/>
+                        Próxima troca: ${new Date(item.data_proxima_troca).toLocaleDateString('pt-BR')} (${item.km_proxima_troca} km)<br/>
+                        <a href="${link}" target="_blank">Enviar lembrete via WhatsApp</a>
                         <div class="actions">
                             <button class="btn-small btn-edit" onclick="editarLembrete(${item.id})">Editar</button>
                             <button class="btn-small btn-delete" onclick="excluirLembrete(${item.id})">Excluir</button>
                         </div>
-                    </div>
-                `;
+                    </div>`;
             });
         }
 
+        // --- EDITAR / EXCLUIR ---
         async function editarLembrete(id) {
-            const { data, error } = await supabaseClient
+            const { data } = await supabaseClient
                 .from('veiculos')
-                .select('*, clientes(nome, telefone)')
+                .select('*, clientes (nome, telefone)')
                 .eq('id', id)
                 .single();
 
-            if (error || !data) return alert('Erro ao carregar lembrete para edição.');
+            if (!data) return alert('Erro ao carregar lembrete.');
 
             document.getElementById('nome').value = data.clientes.nome;
             document.getElementById('telefone').value = data.clientes.telefone;
             document.getElementById('marca').value = data.marca;
             document.getElementById('modelo').value = data.modelo;
             document.getElementById('oleo').value = data.tipo_oleo;
+            document.getElementById('placa').value = data.placa;
             document.getElementById('km_atual').value = data.km_atual;
             document.getElementById('km_proxima').value = data.km_proxima_troca;
             document.getElementById('data_troca').value = data.data_ultima_troca;
@@ -413,14 +356,15 @@
 
         async function excluirLembrete(id) {
             if (!confirm('Tem certeza que deseja excluir este lembrete?')) return;
-
-            const { error } = await supabaseClient.from('veiculos').delete().eq('id', id);
-            if (error) return alert('Erro ao excluir lembrete.');
-
+            await supabaseClient.from('veiculos').delete().eq('id', id);
             alert('Lembrete excluído com sucesso!');
             carregarLembretes();
         }
+
+        function limparCampos() {
+            ['nome', 'telefone', 'marca', 'modelo', 'oleo', 'placa', 'km_atual', 'km_proxima', 'data_troca', 'data_proxima']
+                .forEach(id => document.getElementById(id).value = '');
+        }
     </script>
 </body>
-
 </html>
